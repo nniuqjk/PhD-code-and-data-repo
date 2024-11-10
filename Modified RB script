@@ -1,0 +1,53 @@
+#This script was developed with the gratuitous aid of RevBayes example documents
+#authored by Nicolas Lartillot, Michael Landis, and April Wright.
+ 
+fl <- "inputfile.nex"  #continuous character set used for analysis in nexus format
+outtr <- "treefile.trees" #file to write sampled trees
+outlf <- "logfile.log" #MCMC log
+outsm <- "mcc.trace" #MAP summary tree file
+contData<- readContinuousCharacterData(fl)
+
+
+numTips = contData.ntaxa()
+numNodes = numTips * 2 - 1
+taxa = contData.taxa()
+diversification ~ dnLognormal(0,1)
+turnover = 0 
+speciation := diversification + turnover
+extinction := turnover 
+sampling_fraction <- 1
+
+psi ~ dnBirthDeath(lambda=(abs(speciation)), mu=(abs(extinction)), rho=0.6, rootAge=(abs(1)),taxa=taxa) #instantiate a BD tree with the parameters set above
+mvi = 0 
+
+moves[++mvi] = mvSubtreeScale(psi, weight=5.0)
+moves[++mvi] = mvNNI(psi, weight=10.0)
+moves[++mvi] = mvFNPR(psi, weight=1.0)
+moves[++mvi] = mvSPR(psi,weight=10.0)
+
+tree_length := psi.treeLength()
+moves[++mvi](mvBranchLengthScale(psi, weight=11.0))
+
+monitors[1] = mnScreen(printgen=50000, sigma)
+monitors[2] = mnFile(filename=outlf, printgen=1000, separator = TAB,sigma)
+monitors[3] = mnFile(filename=outtr, printgen=1000,separator = TAB, psi)
+
+logSigma ~ dnNormal(0,1)
+sigma := 10^logSigma
+moves[++mvi] = mvSlide(logSigma, delta=1.0, tune=true, weight=2.0)
+
+traits ~ dnPhyloBrownianREML(psi, branchRates=1.0, siteRates=sigma, nSites=contData.nchar())
+
+traits.clamp(contData)
+bmv = model(sigma) 
+
+chain = mcmc(bmv, monitors, moves)
+chain.burnin(generations=50000,tuningInterval=500)
+
+chain.run(20000000)
+treetrace = readTreeTrace(file = outtr, "clock")
+treefl <-outsm
+
+map = mapTree( file=treefl, treetrace )
+
+
